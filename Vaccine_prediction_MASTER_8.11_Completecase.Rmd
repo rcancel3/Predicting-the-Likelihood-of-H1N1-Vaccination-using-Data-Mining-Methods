@@ -1,0 +1,642 @@
+---
+title: "Predicting H1N1 vaccine likelihood using Data Mining Methods"
+author: "Luke Awino, Roberto Cancel, & Kevin Stewart"
+date: "7/27/2021"
+output:
+  word_document: default
+  html_document:
+    df_print: paged
+---
+
+**Team: 6**  
+**Data set: "Flu Shot Learning: "Predict H1N1 and Seasonal Flu Vaccines"**  
+**Origin: "UCI Machine Learning Repository"**  
+**Objective: The goal is to predict the probability of individuals getting their H1N1 vaccine using behavioral and demographic information.**  
+ 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(car)
+library(carData)
+library(corrplot)
+library(caret)
+library(Hmisc)
+library(plyr)
+library(dplyr)
+library(lattice)
+library(ggplot2)
+library(mice)
+library(naniar)
+library(simputation)
+library(visdat)
+library(MASS)
+library(mlbench)
+library(performance)
+library(reshape2)
+library(pROC)
+library(rpart)
+library(naivebayes)
+library(e1071)
+library(kernlab)
+library(randomForest)
+memory.limit(1000000)
+```
+ 
+# Data Importing and Pre-processing
+ 
+*Import the Training data set*
+```{r message=FALSE, include=FALSE}
+#Import the feature data set
+h1n1_df <- read.csv('training_set_features.csv', header=TRUE, row.names="respondent_id", na.strings=c(""," ","NA"))
+#import response/target variables
+targ_var <- read.csv("training_set_labels.csv", header=TRUE, row.names="respondent_id")
+#Add the target variable to our data set
+h1n1_df$h1n1_vaccine <- targ_var$h1n1_vaccine
+head(h1n1_df)
+```
+*Examine the structure of the data set*
+```{r}
+#Look at the the structure of the data
+str(h1n1_df)
+```
+*Examine missing values for first round of feature elimination*
+```{r}
+# sort missing values by count 
+describe(h1n1_df)
+```
+*Remove features with large proportion of missing data*
+```{r}
+#Removing employment data (since 13330/26707 or 50% of employment_industry is missing and 13470/26707 or 50% of employment_occupation is missing) and health_insurance (50% missing) and hhs_geo_region to focus on Census_msa
+h1n1_df <- subset(h1n1_df, select = -c(hhs_geo_region, employment_industry, employment_occupation, health_insurance))
+```
+*Review Missing Data still in df*
+```{r}
+# Count missing data in the data frame
+sort(colSums(is.na(h1n1_df)))
+```
+*Impute Missing Values for Categorical Variables with mode*
+```{r}
+h1n1_df <- h1n1_df[complete.cases(h1n1_df), ]
+str(h1n1_df)
+```
+```{r}
+#Verify that all the data is is not missing 
+sort(colSums(is.na(h1n1_df)))
+```
+*Transform the features*
+```{r}
+#converting categorical variables to factors 
+h1n1_df$education <- as.factor(h1n1_df$education)
+h1n1_df$race <- as.factor(h1n1_df$race)
+h1n1_df$sex <- as.factor(h1n1_df$sex)
+h1n1_df$age_group <- as.factor(h1n1_df$age_group)
+h1n1_df$income_poverty <- as.factor(h1n1_df$income_poverty)
+h1n1_df$marital_status <- as.factor(h1n1_df$marital_status)
+h1n1_df$rent_or_own <- as.factor(h1n1_df$rent_or_own)
+h1n1_df$employment_status <- as.factor(h1n1_df$employment_status)
+#converting integers discrete variables to factors
+h1n1_df$h1n1_concern <- as.factor(h1n1_df$h1n1_concern)
+h1n1_df$h1n1_knowledge <- as.factor(h1n1_df$h1n1_knowledge)
+h1n1_df$behavioral_antiviral_meds <- as.factor(h1n1_df$behavioral_antiviral_meds)
+h1n1_df$behavioral_avoidance <- as.factor(h1n1_df$behavioral_avoidance)
+h1n1_df$behavioral_face_mask <- as.factor(h1n1_df$behavioral_face_mask)
+h1n1_df$behavioral_wash_hands <- as.factor(h1n1_df$behavioral_wash_hands)
+h1n1_df$behavioral_large_gatherings <- as.factor(h1n1_df$behavioral_large_gatherings)
+h1n1_df$behavioral_outside_home <- as.factor(h1n1_df$behavioral_outside_home)
+h1n1_df$behavioral_outside_home <- as.factor(h1n1_df$behavioral_touch_face)
+h1n1_df$behavioral_touch_face <- as.factor(h1n1_df$behavioral_touch_face)
+h1n1_df$doctor_recc_h1n1 <- as.factor(h1n1_df$doctor_recc_h1n1)
+h1n1_df$doctor_recc_seasonal <- as.factor(h1n1_df$doctor_recc_seasonal)
+h1n1_df$chronic_med_condition <- as.factor(h1n1_df$chronic_med_condition)
+h1n1_df$child_under_6_months <- as.factor(h1n1_df$child_under_6_months)
+h1n1_df$health_worker <- as.factor(h1n1_df$health_worker)
+h1n1_df$opinion_h1n1_vacc_effective <- as.factor(h1n1_df$opinion_h1n1_vacc_effective)
+h1n1_df$opinion_h1n1_risk <- as.factor(h1n1_df$opinion_h1n1_risk)
+h1n1_df$opinion_h1n1_sick_from_vacc <- as.factor(h1n1_df$opinion_h1n1_sick_from_vacc)
+h1n1_df$opinion_seas_vacc_effective <- as.factor(h1n1_df$opinion_seas_vacc_effective)
+h1n1_df$opinion_seas_risk <- as.factor(h1n1_df$opinion_seas_risk)
+h1n1_df$opinion_seas_sick_from_vacc <- as.factor(h1n1_df$opinion_seas_sick_from_vacc)
+h1n1_df$household_adults <- as.factor(h1n1_df$household_adults)
+h1n1_df$household_children <- as.factor(h1n1_df$household_children)
+h1n1_df$census_msa <- as.factor(h1n1_df$census_msa)
+```
+
+```{r}
+clean_data <- h1n1_df
+str(clean_data)
+```
+ 
+#Visualize categorical variables
+ 
+```{r}
+#graph 
+ggplot(clean_data, aes(marital_status)) + geom_bar(aes(fill = marital_status)) + coord_flip() + ggtitle("Frequency of Marital Status")
+
+```
+```{r}
+ggplot(clean_data, aes(rent_or_own)) + geom_bar(aes(fill = rent_or_own)) + coord_flip()+ ggtitle("Frequency of Rent or Own")
+```
+```{r}
+ggplot(clean_data, aes(age_group)) + geom_bar(aes(fill = age_group)) + coord_flip() + ggtitle("Frequency of Age Group")
+```
+```{r}
+ggplot(clean_data, aes(education)) + geom_bar(aes(fill = education)) + coord_flip()+ ggtitle("Frequency of Education Level")
+```
+```{r}
+ggplot(clean_data, aes(race)) + geom_bar(aes(fill = race)) + coord_flip()+ ggtitle("Frequency of Race")
+```
+```{r}
+ggplot(clean_data, aes(sex)) + geom_bar(aes(fill = sex)) + coord_flip()+ ggtitle("Frequency of Sex")
+```
+
+```{r}
+ggplot(clean_data, aes(income_poverty)) + geom_bar(aes(fill = income_poverty)) + coord_flip() + ggtitle("Frequency of Income Type")
+```
+```{r}
+ggplot(clean_data, aes(census_msa)) + geom_bar(aes(fill = census_msa)) + coord_flip() + ggtitle("Frequency of MSA type")
+```
+# Visualize the categorical variables as functions of h1n1_vaccine
+```{r}
+library(forcats)
+ggplot(clean_data, aes(fct_infreq(marital_status))) +
+geom_bar(stat="count", aes(fill= h1n1_vaccine)) +
+labs(x = "Marital Status", y = "Count") +
+ggtitle("Marital Status by Performance: (Vaccinated or Not Vaccinated)")
+```
+
+**FEATURE ENGINEERING**
+ *Re-express Categorical Variables and convert to numerical*
+```{r}
+unique(clean_data$marital_status)
+unique(clean_data$income_poverty)
+unique(clean_data$rent_or_own)
+unique(clean_data$education)
+unique(clean_data$employment_status)
+```
+```{r}
+# Re-expressing categorical variables as a value 
+marital_num <- revalue(x = clean_data$marital_status, replace = c("Not Married" = 0, "Married" = 1))
+clean_data$marital_numeric <- as.numeric(levels(marital_num))[marital_num]
+
+# Re-expressing census_msa
+census_msa <- as.factor(clean_data)
+census_msa_num <- census_msa_num <- revalue(x = clean_data$census_msa, replace = c("Non-MSA" = 0, "MSA, Not Principle  City" = 1, "MSA, Principle City" = 2))
+clean_data$census_msa_numeric <- as.numeric(levels(census_msa_num))[census_msa_num]
+
+# Re-expressing age as numeric
+unique(clean_data$age_group)
+length(unique(clean_data$age_group))
+age_num <- revalue(x = clean_data$age_group, replace = c("18 - 34 Years" = 0, "35 - 44 Years" = 1, "45 - 54 Years" = 2, "55 - 64 Years" = 3, "65+ Years" = 4))
+# convert age_num to numeric
+clean_data$age_numeric <- as.numeric(levels(age_num))[age_num]
+
+#Re-express sex as numeric
+sex_num <- revalue(x = clean_data$sex, replace = c("Female" = 0, "Male" = 1))
+clean_data$sex_numeric <- as.numeric(levels(sex_num))[sex_num]
+
+#convert race to numeric
+unique(clean_data$race)
+race_num <- revalue(x = clean_data$race, replace = c("White" = 0, "Black" = 1, "Other or Multiple" = 2, "Hispanic" = 3))
+clean_data$race_numeric <- as.numeric(levels(race_num))[race_num]
+
+#converting income_poverty to numeric
+income_poverty_num <- revalue(x = clean_data$income_poverty, replace = c("Below Poverty" = 0, "<= $75,000, Above Poverty" = 1, "> $75,000" = 2))
+clean_data$income_poverty_numeric <- as.numeric(levels(income_poverty_num))[income_poverty_num]
+
+#Re-expressing categorical variables
+unique(clean_data$rent_or_own)
+rent_or_own_num <- revalue(x = clean_data$rent_or_own, replace = c("Own" = 0, "Rent" = 1))
+clean_data$rent_or_own_numeric <- as.numeric(levels(rent_or_own_num))[rent_or_own_num]
+
+#Re-expressing categorical variables 
+unique(clean_data$education)
+education_num <- revalue(x = clean_data$education, replace = c("< 12 Years" = 0, "12 Years"= 1, "College Graduate" = 2, "Some College"= 3))
+clean_data$education_numeric <- as.numeric(levels(education_num)) [education_num]
+
+#Re-expressing categorical variables 
+unique(clean_data$employment_status)
+employment_num <- revalue(x = clean_data$employment_status, replace = c("Unemployed" = 0, "Not in Labor Force" = 1, "Employed" = 2))
+clean_data$employment_numeric <- as.numeric(levels(employment_num)) [employment_num]
+
+
+#Re-express categorical variables 
+str(clean_data)
+```
+*Drop the Categorical Variables and Seasonal Flu data since we're focusing on H1N1 vaccines*
+```{r}
+clean_data1 <- subset(clean_data, select = -c( age_group, education, race, sex, income_poverty, marital_status, rent_or_own, employment_status, census_msa, doctor_recc_seasonal, opinion_seas_vacc_effective, opinion_seas_risk, opinion_seas_sick_from_vacc))
+```
+*Convert all variables to numeric after transformations*
+```{r}
+prep_data <- mutate_all(clean_data1, function(clean_data)as.numeric(clean_data))
+str(prep_data)
+```
+```{r}
+#View updated prep_data
+str(prep_data)
+```
+ 
+#Final preparation before modeling
+ 
+ *Check for multicollinearity in features*
+```{r}
+# calculate correlation matrix
+cormat <- round(cor(prep_data, method = "spearman"), 2)
+# Melt the cormat
+melted_cormat <- melt(cormat)
+# Get lower triangle of the correlation matrix
+  get_lower_tri<-function(cormat){
+    cormat[upper.tri(cormat)] <- NA
+    return(cormat)
+  }
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+#Get upper tri
+upper_tri <- get_upper_tri(cormat)
+
+#Create clearer correlation matrix
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+
+#Create heat map
+ggheatmap <- ggplot(data = melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+   name="Spearman\nCorrelation") +
+  theme_minimal()+ 
+ theme(axis.text.x = element_text(angle = 90, vjust = 1, 
+    size =6, hjust = 1))+
+ coord_fixed()
+
+#Add Coefficients
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 2) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+```                
+*Scale all the features*
+```{r}
+#Scale ordinal features
+max = apply(prep_data,2, max)
+min = apply(prep_data,2, min)
+prep_data = as.data.frame(scale(prep_data, center = min, scale = max - min))
+```
+
+*Partition the data*
+```{r}
+#Set Seed and determine dimensions of data set
+set.seed(654)
+n <- dim(prep_data)
+n
+```
+```{r}
+# Split the data into 75% train and 25% test
+dt = sort(sample(nrow(prep_data), nrow(prep_data)*.75))
+
+prep_train <- prep_data[dt,]
+prep_test <- prep_data[-dt,]
+```
+
+*Balance the training set*
+
+```{r}
+#Count number of records in train set
+dim(prep_train)
+#Count number of records in test set
+dim(prep_test)
+```
+*Identify number of h1n1_vaccine is True in training set*
+
+```{r}
+length(which(prep_train$h1n1_vaccine == "1"))
+```
+ 
+There are 20030 records in the training data set, of which 4273 have a h1n1_vaccine of True/1 - this means only 21% of the training set has h1n1_vaccine of True/1. We would like to balance the training set to a 50/50 of h1n1_vaccine True/1 and False/0.
+
+To reach this x = ((.5*14731)-3409)/.5
+x = 7913
+
+We therefore need to over sample the h1n1_vaccine True/1 records by 11544 to balance our data set.
+ 
+
+*Balance the training data set for the imbalance in H1N1_vaccine*
+```{r}
+# Define the records to be sample from
+to.resample <- which(prep_train$h1n1_vaccine == "1")
+# Build a sample of size 11,544 from identified records
+our.resample <- sample(x = to.resample, size = 7913, replace = TRUE)
+our.resample <- prep_train[our.resample,]
+# Bind re-sampled records with training data
+prep_train_rebal <- rbind(prep_train, our.resample)
+# Build Table of Response Counts and Proportions
+t.v1 <- table(prep_train_rebal$h1n1_vaccine)
+t.v2 <- rbind(t.v1, round(prop.table(t.v1), 2))
+colnames(t.v2) <- c("h1n1_vaccine = False/0", "h1n1_vaccine = True/1")
+rownames(t.v2) <- c("Count", "Proportion")
+t.v2
+```
+
+```{r}
+str(prep_train_rebal)
+```
+ 
+#Modeling#
+*Logistic Regression*
+```{r}
+#Build and train baseline model with all remaining features
+
+logreg01 <- glm(formula = h1n1_vaccine ~ h1n1_concern + h1n1_knowledge + behavioral_antiviral_meds + behavioral_avoidance + behavioral_face_mask + behavioral_wash_hands + behavioral_large_gatherings + behavioral_outside_home + doctor_recc_h1n1 + chronic_med_condition + child_under_6_months + health_worker + opinion_h1n1_vacc_effective + opinion_h1n1_risk + opinion_h1n1_sick_from_vacc + household_adults + household_children + marital_numeric + census_msa_numeric + age_numeric + sex_numeric + race_numeric + income_poverty_numeric + rent_or_own_numeric + education_numeric + employment_numeric, 
+    data = prep_train_rebal, family = binomial(link = "logit"))
+
+summary(logreg01)
+```
+ 
+Summary: We see that the following variables are statistically insignificant and therefore, likely, do not significantly contribute to the likelihood of vaccination:  behavioral_outside_home, opinion_h1n1_sick_from_vacc, household_adults, census_msa_numeric, race_numeric, rent_or_own_numeric, education_numeric, employment_numeric. We have, however, decided to keep race, education and employment in our subsequent iteration since this is a socio-demographic study.
+ 
+*Validate with the test set*
+```{r}
+logreg01_test <- glm(formula = h1n1_vaccine ~ h1n1_concern + h1n1_knowledge + behavioral_antiviral_meds + behavioral_avoidance + behavioral_face_mask + behavioral_wash_hands + behavioral_large_gatherings + behavioral_outside_home + doctor_recc_h1n1 + chronic_med_condition + child_under_6_months + health_worker + opinion_h1n1_vacc_effective + opinion_h1n1_risk + opinion_h1n1_sick_from_vacc + household_adults + household_children + marital_numeric + census_msa_numeric + age_numeric + sex_numeric + race_numeric + income_poverty_numeric + rent_or_own_numeric + education_numeric + employment_numeric, 
+    data = prep_test, family = binomial(link = "logit"))
+
+summary(logreg01_test)
+```
+
+*Obtain the predicted values of the target variable for each record in the data set
+```{r}
+pred = predict(logreg01, newdata=prep_test)
+predicted.classes <- factor(ifelse(pred > 0.5, "1", "0"))
+accuracy <- table(pred, prep_test[,"h1n1_vaccine"])
+sum(diag(accuracy))/sum(accuracy)
+```
+```{r}
+confusionMatrix(predicted.classes, factor(prep_test$h1n1_vaccine), positive = '1')
+```
+
+```{r}
+auc(prep_test$h1n1_vaccine, pred)
+```
+*Rationalized Logistic Regression*
+```{r}
+#Build and train baseline model with all remaining features
+logreg02 <- glm(formula = h1n1_vaccine ~ h1n1_concern + h1n1_knowledge + behavioral_antiviral_meds + behavioral_avoidance + behavioral_face_mask + behavioral_wash_hands + behavioral_large_gatherings + doctor_recc_h1n1 + chronic_med_condition + child_under_6_months + health_worker + opinion_h1n1_vacc_effective + opinion_h1n1_risk + household_children + marital_numeric + census_msa_numeric + age_numeric + sex_numeric + race_numeric + income_poverty_numeric + education_numeric + employment_numeric, 
+    data = prep_train_rebal, family = binomial(link = "logit"))
+
+summary(logreg02)
+```
+
+*Validate with the test set*
+```{r}
+logreg02_test <- glm(formula = h1n1_vaccine ~ h1n1_concern + h1n1_knowledge + behavioral_antiviral_meds + behavioral_avoidance + behavioral_face_mask + behavioral_wash_hands + behavioral_large_gatherings + doctor_recc_h1n1 + chronic_med_condition + child_under_6_months + health_worker + opinion_h1n1_vacc_effective + opinion_h1n1_risk + household_children + marital_numeric + census_msa_numeric + age_numeric + sex_numeric + race_numeric + income_poverty_numeric + education_numeric + employment_numeric,
+    data = prep_test, family = binomial(link = "logit"))
+
+summary(logreg02_test)
+```
+*Obtain the predicted values of the target variable for each record in the data set
+```{r}
+pred3 = predict(logreg02, newdata=prep_test)
+predicted.classes3 <- factor(ifelse(pred3 > 0.5, "1", "0"))
+accuracy3 <- table(pred3, prep_test[,"h1n1_vaccine"])
+sum(diag(accuracy))/sum(accuracy)
+```
+```{r}
+auc(prep_test$h1n1_vaccine, pred3)
+```
+```{r}
+
+confusionMatrix(predicted.classes3, factor(prep_test$h1n1_vaccine), positive = '1')
+```
+
+# Naives Bayes 
+
+```{r}
+#Building a naive bayes model 
+
+nb1 <- naiveBayes(formula = h1n1_vaccine ~ + h1n1_knowledge + 
+    behavioral_antiviral_meds + behavioral_avoidance + behavioral_face_mask + 
+    behavioral_wash_hands + behavioral_large_gatherings + behavioral_outside_home + 
+    behavioral_touch_face + doctor_recc_h1n1 + chronic_med_condition + 
+    child_under_6_months + health_worker + opinion_h1n1_vacc_effective + 
+    opinion_h1n1_risk + opinion_h1n1_sick_from_vacc + household_adults + 
+    household_children + marital_numeric + census_msa_numeric + 
+    age_numeric + sex_numeric + race_numeric + income_poverty_numeric + 
+    rent_or_own_numeric + education_numeric + employment_numeric, data = prep_train_rebal)
+
+nb1
+```
+# Predictions 
+```{r include=FALSE}
+#Do prediction get all columns except target variable
+
+head(prep_train_rebal)
+
+ypred1 <- predict(nb1, newdata = prep_train_rebal)
+(cbind(ypred1, prep_train_rebal))
+
+ypred2 <- predict(nb1, newdata = prep_test)
+(cbind(ypred2, prep_test))
+
+
+```
+
+# Confusion Matrix
+
+```{r}
+#Create a confusion matrix to evaluate the model.
+
+# Confusion matrix of training set 
+t.pred1 <-  table(prep_train_rebal$h1n1_vaccine, ypred1)
+rownames(t.pred1) <- c("Actual:Not Vaccinated", "Actual: Vaccinated")
+colnames(t.pred1) <- c("Predicted: No Vaccine", "Predicted: Vaccinated")
+addmargins(A = t.pred1, FUN = list(Total=sum), quiet = TRUE)
+
+# Confusion matrix for testing data set 
+t.pred2 <-  table(prep_test$h1n1_vaccine, ypred2)
+rownames(t.pred2) <- c("Actual:Not Vaccinated", "Actual: Vaccinated")
+colnames(t.pred2) <- c("Predicted: Not Vaccinated", "Predicted: Vaccinated")
+addmargins(A =t.pred2, FUN = list(Total=sum), quiet = TRUE)
+
+```
+
+# Evaluate the training model 
+
+```{r}
+require(caret)
+
+# Convert the data to factor to run evaluations
+prep_train_rebal$h1n1_vaccine <- as.factor(prep_train_rebal$h1n1_vaccine)
+# verifying the data type
+str(prep_train_rebal$h1n1_vaccine)
+#Evaluating the confusion matrix of the training set 
+pred_p <- predict(nb1, newdata=prep_train_rebal)
+predicted.class_2 <- factor(ifelse(pred_p > .5, "1","0"))
+accuracy1 <- table(pred_p, prep_train_rebal[,"h1n1_vaccine"])
+sum(diag(accuracy1))/sum(accuracy1)
+#printing the results
+confusionMatrix(data=pred_p, factor(prep_train_rebal$h1n1_vaccine), positive = '1')
+
+#Evaluating the confusion matrix of the testing data set 
+pred_p <- predict(nb1, newdata=prep_test)
+accuracy1 <- table(pred_p, prep_test[,"h1n1_vaccine"])
+sum(diag(accuracy1))/sum(accuracy1)
+
+#Printing the results
+confusionMatrix(data=pred_p, factor(prep_test$h1n1_vaccine), positive = '1')
+
+```
+
+
+# Improving the model  by smoothing with laplace and usekernals
+```{r}
+str(prep_train_rebal$h1n1_vaccine)
+
+
+nb2 <- naiveBayes(formula = h1n1_vaccine ~ +h1n1_knowledge + 
+    behavioral_antiviral_meds + behavioral_avoidance + behavioral_face_mask +  behavioral_wash_hands + behavioral_large_gatherings +behavioral_touch_face +doctor_recc_h1n1 + chronic_med_condition + 
+    child_under_6_months + health_worker + opinion_h1n1_vacc_effective + 
+    opinion_h1n1_risk + opinion_h1n1_sick_from_vacc + household_adults + 
+    household_children + marital_numeric + census_msa_numeric + 
+    age_numeric + sex_numeric + race_numeric + income_poverty_numeric + 
+    rent_or_own_numeric + education_numeric + employment_numeric, data = prep_train_rebal, laplace = 1, usekernals = 1)
+
+nb2
+
+
+```
+
+# Predictions using smoothing and uskernals
+
+```{r}
+ypred1 <- predict(nb2, newdata = prep_train_rebal)
+(cbind(ypred1, prep_train_rebal))
+
+ypred2 <- predict(nb2, newdata = prep_test)
+(cbind(ypred2, prep_test))
+
+
+
+```
+
+
+```{r}
+# Confusion matrix of training set 
+t.pred1 <-  table(prep_train_rebal$h1n1_vaccine, ypred1)
+rownames(t.pred1) <- c("Actual:Not Vaccinated", "Actual: Vaccinated")
+colnames(t.pred1) <- c("Predicted: No Vaccine", "Predicted: Vaccinated")
+addmargins(A = t.pred1, FUN = list(Total=sum), quiet = TRUE)
+
+# Confusion matrix for testing data set 
+t.pred2 <-  table(prep_test$h1n1_vaccine, ypred2)
+rownames(t.pred2) <- c("Actual:Not Vaccinated", "Actual: Vaccinated")
+colnames(t.pred2) <- c("Predicted: Not Vaccinated", "Predicted: Vaccinated")
+addmargins(A =t.pred2, FUN = list(Total=sum), quiet = TRUE)
+
+
+
+```
+
+# Naive Bayes Prediction 2
+```{r}
+
+pred_p2 <- predict(nb2, newdata=prep_train_rebal)
+predicted.class_p2 <- factor(ifelse(pred_p > .5, "1","0"))
+accuracy2 <- table(pred_p2, prep_train_rebal[,"h1n1_vaccine"])
+sum(diag(accuracy1))/sum(accuracy2)
+#printing the results
+confusionMatrix(data=pred_p2, factor(prep_train_rebal$h1n1_vaccine), positive = '1')
+
+#Evaluating the confusion matrix of the testing data set 
+pred_p3 <- predict(nb2, newdata=prep_test)
+
+#predicted.class_2 <- factor(ifelse(pred_p > 0.5, "1","0"))
+accuracy3 <- table(pred_p3, prep_test[,"h1n1_vaccine"])
+sum(diag(accuracy1))/sum(accuracy3)
+
+#Printing the results
+confusionMatrix(data=pred_p, factor(prep_test$h1n1_vaccine), positive = '1')
+
+
+
+```
+
+
+ Random Forest
+```{r}
+prep_train_rebal$h1n1_vaccine <- as.factor(prep_train_rebal$h1n1_vaccine)
+prep_test$h1n1_vaccine <-as.factor(prep_test$h1n1_vaccine)
+# had to convert the target variables to factors before running the code to run it as a classification model instead of regression.
+library(randomForest)
+h1n1_rf <- randomForest(h1n1_vaccine ~., data = prep_train_rebal, ntree = 100,proximity = TRUE)
+print(h1n1_rf)
+```
+the out-of-bag error rate is 6.58%. Meaning that 93.42% of the data was predicted correctly.
+
+```{r}
+plot(h1n1_rf)
+```
+```{r}
+plot(h1n1_rf$err.rate)
+```
+
+
+The Mean Decrease Gini below
+```{r}
+h1n1_rf$importance
+```
+what is mtry?
+
+```{r}
+h1n1_rf$mtry
+```
+why the accuracy? 
+
+```{r}
+
+
+p1<- predict(h1n1_rf, prep_train_rebal)
+confusionMatrix(p1, prep_train_rebal$h1n1_vaccine, positive = '1')
+
+```
+prepare new model based on the gini coefficiency? what does it say?
+
+```{r}
+h1n1_meangini <- randomForest(h1n1_vaccine ~ doctor_recc_h1n1+
+opinion_h1n1_risk + opinion_h1n1_vacc_effective +
+age_numeric + opinion_h1n1_sick_from_vacc + education_numeric +
+h1n1_concern + census_msa_numeric + household_adults + household_children + income_poverty_numeric + h1n1_knowledge +
+health_worker + employment_numeric +race_numeric+
+sex_numeric, data = prep_train_rebal, ntree = 100,proximity = TRUE)
+```
+
+gini model confusion matrix shows that the model accuracy decreased using the Mean Decrease Gini
+```{r}
+pred_gini<- predict(h1n1_meangini, prep_train_rebal)
+confusionMatrix(pred_gini, prep_train_rebal$h1n1_vaccine, positive = '1')
+
+```
+
+Random Forest Model validation
+```{r}
+p2<- predict(h1n1_rf, prep_test)
+confusionMatrix(p2, prep_test$h1n1_vaccine, positive = '1')
+```
+Gini Model Decrease Validation
+
+```{r}
+pred_gini_test<- predict(h1n1_meangini, prep_test)
+confusionMatrix(pred_gini_test, prep_test$h1n1_vaccine, positive = '1')
+```
